@@ -165,3 +165,67 @@ func TestDefaultGrid_ExitBelowEntry(t *testing.T) {
 		t.Error("grid should contain the default parameters")
 	}
 }
+
+func TestParseGrid_Valid(t *testing.T) {
+	spec := "entry=0.1:0.5:0.1,exit=-0.5:0.1:0.1"
+	grid, err := ParseGrid(spec)
+	if err != nil {
+		t.Fatalf("unexpected error parsing valid grid: %v", err)
+	}
+	if len(grid) == 0 {
+		t.Fatal("expected non-empty grid")
+	}
+	for _, p := range grid {
+		if p.Exit >= p.Entry {
+			t.Errorf("grid point %+v has exit >= entry", p)
+		}
+		if p.Entry < 0.1 || p.Entry > 0.5 {
+			t.Errorf("entry out of bounds: %v", p.Entry)
+		}
+		if p.Exit < -0.5 || p.Exit > 0.1 {
+			t.Errorf("exit out of bounds: %v", p.Exit)
+		}
+	}
+
+	// Verify order independence
+	revSpec := "exit=-0.5:0.1:0.1,entry=0.1:0.5:0.1"
+	revGrid, err := ParseGrid(revSpec)
+	if err != nil {
+		t.Fatalf("unexpected error parsing reversed spec: %v", err)
+	}
+	if len(grid) != len(revGrid) {
+		t.Errorf("len(grid) = %d, len(revGrid) = %d", len(grid), len(revGrid))
+	}
+}
+
+func TestParseGrid_Invalid(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+	}{
+		{"empty", ""},
+		{"single component", "entry=0.1:0.5:0.1"},
+		{"missing entry", "exit=-0.5:0.1:0.1,foo=1:2:1"},
+		{"missing exit", "entry=0.1:0.5:0.1,foo=1:2:1"},
+		{"unknown key", "entry=0.1:0.5:0.1,other=1:2:1"},
+		{"duplicate entry", "entry=0.1:0.5:0.1,entry=0.2:0.4:0.1"},
+		{"duplicate exit", "exit=-0.5:0.1:0.1,exit=-0.2:0.0:0.1"},
+		{"not three parts", "entry=0.1:0.5,exit=-0.5:0.1:0.1"},
+		{"non-numeric start", "entry=abc:0.5:0.1,exit=-0.5:0.1:0.1"},
+		{"non-numeric stop", "entry=0.1:xyz:0.1,exit=-0.5:0.1:0.1"},
+		{"non-numeric step", "entry=0.1:0.5:step,exit=-0.5:0.1:0.1"},
+		{"zero step", "entry=0.1:0.5:0,exit=-0.5:0.1:0.1"},
+		{"negative step", "entry=0.1:0.5:-0.1,exit=-0.5:0.1:0.1"},
+		{"start greater than stop", "entry=0.5:0.1:0.1,exit=-0.5:0.1:0.1"},
+		{"no points with exit < entry", "entry=0.1:0.2:0.1,exit=0.3:0.4:0.1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseGrid(tt.spec)
+			if err == nil {
+				t.Errorf("expected error for spec %q, got nil", tt.spec)
+			}
+		})
+	}
+}

@@ -30,6 +30,7 @@ func main() {
 	doOptimize := flag.Bool("optimize", false, "walk-forward optimisation: tune thresholds in-sample, score out-of-sample")
 	trainDays := flag.Int("train-days", 120, "walk-forward training window (days)")
 	testDays := flag.Int("test-days", 30, "walk-forward test window (days)")
+	gridStr := flag.String("grid", "", "custom threshold grid (e.g. entry=0.1:0.5:0.1,exit=-0.5:0.1:0.1)")
 	exportPath := flag.String("export", "", "write analysis + walk-forward results with price history to this JSON file")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 
@@ -85,6 +86,14 @@ Any CoinGecko coin ID is valid: bitcoin, ethereum, solana, cardano, dogecoin, â€
 	client := api.NewCoinGeckoClient()
 	wf := backtest.DefaultWalkForward()
 	wf.TrainDays, wf.TestDays = *trainDays, *testDays
+	if *gridStr != "" {
+		grid, err := backtest.ParseGrid(*gridStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		wf.Grid = grid
+	}
 
 	if (*doOptimize || *exportPath != "") && *days < backtest.WarmupPeriod+wf.TrainDays+wf.TestDays {
 		fmt.Fprintf(os.Stderr, "error: walk-forward needs --days >= %d (warmup %d + train %d + test %d)\n",

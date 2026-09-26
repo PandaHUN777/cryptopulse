@@ -3,6 +3,8 @@ package backtest
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // WalkForwardConfig controls the rolling optimise-then-test procedure.
@@ -10,6 +12,110 @@ type WalkForwardConfig struct {
 	TrainDays int      // in-sample window used to pick parameters
 	TestDays  int      // out-of-sample window traded with those parameters
 	Grid      []Params // candidate thresholds
+}
+
+// ParseGrid parses a grid specification of the form "entry=start:stop:step,exit=start:stop:step"
+// into candidate parameter pairs with Exit < Entry.
+func ParseGrid(spec string) ([]Params, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, fmt.Errorf("empty grid specification")
+	}
+
+	parts := strings.Split(spec, ",")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("expected 'entry=start:stop:step,exit=start:stop:step', got %q", spec)
+	}
+
+	var entryVals, exitVals []float64
+	seenEntry, seenExit := false, false
+
+	for _, p := range parts {
+		kv := strings.SplitN(strings.TrimSpace(p), "=", 2)
+		if len(kv) != 2 {
+			return nil, fmt.Errorf("invalid component %q (expected key=val)", p)
+		}
+		key, val := strings.ToLower(strings.TrimSpace(kv[0])), strings.TrimSpace(kv[1])
+		switch key {
+		case "entry":
+			if seenEntry {
+				return nil, fmt.Errorf("duplicate entry parameter")
+			}
+			vals, err := parseRange(val)
+			if err != nil {
+				return nil, fmt.Errorf("invalid entry spec: %w", err)
+			}
+			entryVals = vals
+			seenEntry = true
+		case "exit":
+			if seenExit {
+				return nil, fmt.Errorf("duplicate exit parameter")
+			}
+			vals, err := parseRange(val)
+			if err != nil {
+				return nil, fmt.Errorf("invalid exit spec: %w", err)
+			}
+			exitVals = vals
+			seenExit = true
+		default:
+			return nil, fmt.Errorf("unknown parameter %q (must be 'entry' or 'exit')", key)
+		}
+	}
+
+	if !seenEntry || !seenExit {
+		return nil, fmt.Errorf("both 'entry' and 'exit' specifications are required")
+	}
+
+	var grid []Params
+	for _, entry := range entryVals {
+		for _, exit := range exitVals {
+			if exit < entry {
+				grid = append(grid, Params{Entry: entry, Exit: exit})
+			}
+		}
+	}
+
+	if len(grid) == 0 {
+		return nil, fmt.Errorf("grid has no valid points with exit < entry")
+	}
+
+	return grid, nil
+}
+
+func parseRange(s string) ([]float64, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("expected start:stop:step, got %q", s)
+	}
+	start, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid range start %q: %w", parts[0], err)
+	}
+	stop, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid range stop %q: %w", parts[1], err)
+	}
+	step, err := strconv.ParseFloat(parts[2], 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid range step %q: %w", parts[2], err)
+	}
+	if step <= 0 {
+		return nil, fmt.Errorf("step must be positive, got %v", step)
+	}
+	if start > stop {
+		return nil, fmt.Errorf("start (%v) must not be greater than stop (%v)", start, stop)
+	}
+
+	var values []float64
+	const eps = 1e-9
+	for v := start; v <= stop+eps; v += step {
+		rounded := math.Round(v*1e6) / 1e6
+		values = append(values, rounded)
+	}
+	if len(values) == 0 {
+		return nil, fmt.Errorf("range %q produced no values", s)
+	}
+	return values, nil
 }
 
 // DefaultGrid is every Entry/Exit pair from a small grid with Exit < Entry.
